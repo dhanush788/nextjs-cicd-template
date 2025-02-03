@@ -1,0 +1,66 @@
+name: Next.js CI/CD Pipeline Boilerplate
+
+on:
+  push:
+    branches:
+      - main  
+  pull_request:
+    branches:
+      - main  
+
+jobs:
+  build:
+    runs-on: [self-hosted, amazon-linux]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '16'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run tests
+        run: npm run test
+
+      - name: Build Next.js app
+        run: npm run build
+
+  deploy:
+    needs: build
+    runs-on: [self-hosted, amazon-linux]
+    if: success()
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up SSH keys
+        run: |
+          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+      - name: Add EC2 to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.EC2_PUBLIC_IP }} >> ~/.ssh/known_hosts
+
+      - name: Install pm2 globally
+        run: |
+          npm install -g pm2
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build Next.js app
+        run: npm run build
+
+      - name: Deploy to EC2
+        run: |
+          scp -i ~/.ssh/id_rsa -r ./out ec2-user@${{ secrets.EC2_PUBLIC_IP }}:/nextjs-cicd-template
+          ssh -i ~/.ssh/id_rsa ec2-user@${{ secrets.EC2_PUBLIC_IP }} "pm2 start npm --name 'nextjs-cicd-template' -- run start -- -p 3001"
+          ssh -i ~/.ssh/id_rsa ec2-user@${{ secrets.EC2_PUBLIC_IP }} "pm2 save"
