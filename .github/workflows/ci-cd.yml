@@ -1,66 +1,55 @@
-name: Next.js CI/CD Pipeline Boilerplate
+name: Push-to-EC2 instance
 
 on:
   push:
     branches:
-      - main  
-  pull_request:
-    branches:
-      - main  
+      - main
 
 jobs:
-  build:
-    runs-on: [self-hosted, amazon-linux]
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v2
-        with:
-          node-version: '16'
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Run tests
-        run: npm run test
-
-      - name: Build Next.js app
-        run: npm run build
-
   deploy:
-    needs: build
-    runs-on: [self-hosted, amazon-linux]
-    if: success()
+    name: Push to EC2
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
+      - name: Checkout the code
+        uses: actions/checkout@v1
 
-      - name: Set up SSH keys
-        run: |
-          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
+      - name: Deploy to my EC2 instance
+        uses: easingthemes/ssh-deploy@v2.1.5
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          SOURCE: "./"
+          REMOTE_HOST: ${{ secrets.EC2_PUBLIC_IP }}
+          REMOTE_USER: ${{ secrets.USERNAME }}
+          TARGET: ${{ secrets.TARGET_DIR }}
 
-      - name: Add EC2 to known hosts
-        run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan -H ${{ secrets.EC2_PUBLIC_IP }} >> ~/.ssh/known_hosts
+      - name: Executing remote ssh commands using ssh key
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.EC2_PUBLIC_IP }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          script: |
+            # Update and install necessary packages
+            sudo yum -y update
+            sudo yum install -y nodejs npm git
 
-      - name: Install pm2 globally
-        run: |
-          npm install -g pm2
+            # Install PM2 globally
+            sudo npm install -g pm2
 
-      - name: Install dependencies
-        run: npm install
+            # Navigate to project directory
+            cd /home
+            cd ec2-user
 
-      - name: Build Next.js app
-        run: npm run build
+            # Install project dependencies
+            npm install --legacy-peer-deps
 
-      - name: Deploy to EC2
-        run: |
-          scp -i ~/.ssh/id_rsa -r ./out ec2-user@${{ secrets.EC2_PUBLIC_IP }}:/nextjs-cicd-template
-          ssh -i ~/.ssh/id_rsa ec2-user@${{ secrets.EC2_PUBLIC_IP }} "pm2 start npm --name 'nextjs-cicd-template' -- run start -- -p 3001"
-          ssh -i ~/.ssh/id_rsa ec2-user@${{ secrets.EC2_PUBLIC_IP }} "pm2 save"
+            # Build the Next.js app
+            npm run build
+
+            # Start the app with PM2 on port 3001
+            pm2 start npm --name "nextjs-app" -- start -p 3001
+
+            # Ensure PM2 restarts the app on reboot
+            pm2 startup systemd
+            pm2 save
