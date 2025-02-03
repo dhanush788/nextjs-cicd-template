@@ -37,9 +37,8 @@ jobs:
             # Install PM2 globally
             sudo npm install -g pm2
 
-            # Navigate to project directory
-            cd /home
-            cd ec2-user
+            # Navigate to project directory (make sure TARGET_DIR is correct)
+            cd ${{ secrets.TARGET_DIR }}
 
             # Install project dependencies
             npm install --legacy-peer-deps
